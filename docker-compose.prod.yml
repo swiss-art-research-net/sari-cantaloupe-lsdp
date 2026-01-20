@@ -1,0 +1,15 @@
+# version: "3"
+services:
+    cantaloupe:
+        environment:
+            LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+            LETSENCRYPT_HOST: ${LETSENCRYPT_HOST}
+            VIRTUAL_HOST: ${LETSENCRYPT_HOST}
+            VIRTUAL_PORT: 8182
+        networks:
+        - proxy
+
+networks:
+  proxy:
+    external:
+      name: ${PROXY_NETWORK_NAME}

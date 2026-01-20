@@ -1,0 +1,27 @@
+# version: "3.8"
+services:
+  cantaloupe:
+    build: .
+    container_name: ${PROJECT_NAME}_cantaloupe
+    image: swissartresearx/cantaloupe:5.0
+    restart: always
+    volumes:
+      - ./config:/config
+      - ./images:/images
+    ports:
+      - "${PORT_CANTALOUPE:-8182}:8182"
+
+  iiif_ingest:
+    build:
+      context: ./services/iiif_ingest
+    container_name: ${PROJECT_NAME}_iiif_ingest
+    environment:
+      - CANTALOUPE_IMAGE_DIR=/images
+      - CANTALOUPE_BASE_URL=${CANTALOUPE_BASE_URL}
+    volumes:
+      - ./images:/images
+    ports:
+      - "8000:8000"
+    depends_on:
+      - cantaloupe
+    restart: unless-stopped
