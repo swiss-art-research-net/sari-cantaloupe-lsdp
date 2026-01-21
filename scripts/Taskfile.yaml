@@ -16,4 +16,5 @@ includes:
 tasks:
   default:
     desc: Default task
-    cmds: echo "Default task"
+    cmds: 
+      - echo "Default task"
