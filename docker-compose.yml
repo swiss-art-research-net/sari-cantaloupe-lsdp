@@ -25,3 +25,15 @@ services:
     depends_on:
       - cantaloupe
     restart: unless-stopped
+
+    jobs:
+      build: ./services/jobs
+      container_name: ${PROJECT_NAME}_jobs
+      restart: unless-stopped
+      volumes:
+          - ./data:/data
+          - ./scripts:/scripts
+          - ./images:/images
+      environment:
+          - JAVA_OPTS=-Xms512m -Xmx1024m
+          - COMPOSE_PROJECT_NAME=${PROJECT_NAME}
