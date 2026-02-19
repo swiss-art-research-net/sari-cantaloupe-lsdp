@@ -11,7 +11,110 @@ Copy and edit .env.example file:
 
 Start with `docker compose up -d`.
 
-Place images in `images` directory.
+Place images in `images` directory. Or you can leave the folder empty and use the upload service described below to upload images to the running server.
+
+## Upload Images Service
+
+Once the service is running, a zipped LCP corpus can be uploaded. To test this service, you can run the code at https://github.com/liri-uzh/lcpimport_erara44085 and use the zip package it produces with our Upload Image Service.
+Expected zip contents:
+
+```
+.
+├── book_name.csv
+├── book.csv
+├── config.json
+├── fts_vector.csv
+├── line.csv
+├── media
+│   ├── p10709677.png
+│   ├── p10709678.png
+│   ├── p12550757.png
+│   └── p12550758.png
+│   └── ...
+├── page.csv
+├── segment.csv
+├── token_form.csv
+└── token.csv
+```
+
+Use the following command to upload zip (replace `localhost:8000` with host name if applicable)
+```
+curl -F "file=@path/to/lcp_erara_output.zip" http://localhost:8000/upload-zip
+```
+
+The response will look like the following:
+
+```json
+{
+  "uploaded": 4,
+  "details": [
+    {
+      "image": "media/p10709677.png",
+      "result": {
+        "local_path": "/images/p10709677.png",
+        "iiif_info_json": "http://localhost:8182/iiif/2/p10709677.png/info.json",
+        "iiif_base": "http://localhost:8182/iiif/2/p10709677.png",
+        "default_image": "http://localhost:8182/iiif/2/p10709677.png/full/full/0/default.jpg",
+        "identifier": "p10709677.png",
+        "manifest_url": "http://localhost:8000/manifests/p10709677.png.json"
+      },
+      "destination": "cantaloupe_fs"
+    },
+    {
+      "image": "media/p10709678.png",
+      "result": {
+        "local_path": "/images/p10709678.png",
+        "iiif_info_json": "http://localhost:8182/iiif/2/p10709678.png/info.json",
+        "iiif_base": "http://localhost:8182/iiif/2/p10709678.png",
+        "default_image": "http://localhost:8182/iiif/2/p10709678.png/full/full/0/default.jpg",
+        "identifier": "p10709678.png",
+        "manifest_url": "http://localhost:8000/manifests/p10709678.png.json"
+      },
+      "destination": "cantaloupe_fs"
+    },
+    {
+      "image": "media/p12550757.png",
+      "result": {
+        "local_path": "/images/p12550757.png",
+        "iiif_info_json": "http://localhost:8182/iiif/2/p12550757.png/info.json",
+        "iiif_base": "http://localhost:8182/iiif/2/p12550757.png",
+        "default_image": "http://localhost:8182/iiif/2/p12550757.png/full/full/0/default.jpg",
+        "identifier": "p12550757.png",
+        "manifest_url": "http://localhost:8000/manifests/p12550757.png.json"
+      },
+      "destination": "cantaloupe_fs"
+    },
+    {
+      "image": "media/p12550758.png",
+      "result": {
+        "local_path": "/images/p12550758.png",
+        "iiif_info_json": "http://localhost:8182/iiif/2/p12550758.png/info.json",
+        "iiif_base": "http://localhost:8182/iiif/2/p12550758.png",
+        "default_image": "http://localhost:8182/iiif/2/p12550758.png/full/full/0/default.jpg",
+        "identifier": "p12550758.png",
+        "manifest_url": "http://localhost:8000/manifests/p12550758.png.json"
+      },
+      "destination": "cantaloupe_fs"
+    }
+  ],
+  "download_id": "ae306569544741988a71cac49d4b7cdb",
+  "download_url": "http://localhost:8000/download/ae306569544741988a71cac49d4b7cdb"
+}
+```
+
+The response will provide a download url (`download_url`) where a slightly modified version of the uploaded zip can be downloaded.
+The modifications concern exclusively the file `page.csv` in the zip package, where the column `iiif_url` was added. This columns maps names of the original image files to their corresponding `info.json` file on the IIIF image server.
+Here is an excerpt of the modified `page.csv` file:
+
+```csv
+page_id,char_range,xy_box,page,iiif_url,manifest_url
+1,"[0,32)","(0,0),(1492,2299)",p12550757.png,http://localhost:8182/iiif/2/p12550757.png/info.json,http://localhost:8000/manifests/p12550757.png.json
+2,"[32,38)","(1493,0),(2895,2303)",p12550758.png,http://localhost:8182/iiif/2/p12550758.png/info.json,http://localhost:8000/manifests/p12550758.png.json
+```
+
+## IIIF Viewer
+Once the images are uploaded, they can be examined in a simple viewer available at http://localhost:8088/.
+
 
 ## Configure Proxy
 
