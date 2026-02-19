@@ -92,12 +92,12 @@ def create_manifest(image_info: dict):
                                 "type": "Annotation",
                                 "motivation": "painting",
                                 "body": {
-                                    "id": iiif_url,
+                                    "id": image_info["default_image"],
                                     "type": "Image",
-                                    "format": "image/png",
+                                    "format": "image/jpeg",
                                     "service": [
                                         {
-                                            "id": iiif_url.replace("/info.json", ""),
+                                            "id": image_info["iiif_base"],
                                             "type": "ImageService3",
                                             "profile": "level2"
                                         }
@@ -172,8 +172,18 @@ def save_to_cantaloupe(image_path: str, extract_root: str):
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(image_path, dest_path)
     identifier = fname  # include extension
-    info_json = f"{CANTALOUPE_BASE_URL}/{identifier}/info.json"
-    return {"local_path": str(dest_path), "iiif_info_json": info_json, "identifier": identifier}
+    base_url = f"{CANTALOUPE_BASE_URL}/{identifier}"
+    info_json = f"{base_url}/info.json"
+    default_image = f"{base_url}/full/full/0/default.jpg"
+
+    return {
+        "local_path": str(dest_path),
+        "iiif_info_json": info_json,
+        "iiif_base": base_url,
+        "default_image": default_image,
+        "identifier": identifier
+    }
+
 
 @app.post("/upload-zip")
 # @app.post("/upload-zip", dependencies=[Depends(require_upload_token)])
@@ -236,19 +246,30 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                             continue
                         except Exception as e_remote:
                             results.append({"image": rel_img, "warning": "remote upload failed", "error": str(e_remote)})
+                    
                     # falls back to: copy into Cantaloupe FS
                     saved = save_to_cantaloupe(img, base_dir)
                     iiif_url = saved.get("iiif_info_json", "")
-                    saved_map[os.path.basename(img)] = {"iiif": iiif_url, "width": width, "height": height}
+                    saved_map[os.path.basename(img)] = {
+                        "iiif_info": saved["iiif_info_json"],
+                        "iiif_base": saved["iiif_base"],
+                        "default_image": saved["default_image"],
+                        "width": width,
+                        "height": height
+                    }
                     
                     # generate manifest for this image
                     manifest_url = create_manifest({
                         "iiif": iiif_url,
                         "width": width,
                         "height": height,
-                        "identifier": os.path.basename(img)
+                        "identifier": os.path.basename(img),
+                        "default_image": saved["default_image"],
+                        "iiif_base": saved["iiif_base"]
                     })
                     saved_map[os.path.basename(img)]["manifest"] = manifest_url
+                    
+                    saved["manifest_url"] = manifest_url  # set manifest URL
 
                     results.append({"image": rel_img, "result": saved, "destination": "cantaloupe_fs"})
                 except Exception as e:
@@ -268,6 +289,8 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                 # append new column if not present
                 if "iiif_url" not in header:
                     header.append("iiif_url")
+                if "manifest_url" not in header:
+                    header.append("manifest_url")
                 new_rows = [header]
                 for row in reader[1:]:
                     # try to find page filename column (search for a filename pattern)
