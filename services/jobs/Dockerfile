@@ -9,6 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         locales \
         time \
+        build-essential \
+        libxml2-dev \
+        libxslt1-dev \
+        libjpeg-dev \
+        zlib1g-dev \
+        libtiff-dev \
+        libwebp-dev \
     && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
 
