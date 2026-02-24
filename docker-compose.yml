@@ -12,8 +12,7 @@ services:
       - "${PORT_CANTALOUPE:-8182}:8182"
 
   iiif_ingest:
-    build:
-      context: ./services/iiif_ingest
+    build: ./services/iiif_ingest
     container_name: ${PROJECT_NAME}_iiif_ingest
     environment:
       - CANTALOUPE_IMAGE_DIR=/images
