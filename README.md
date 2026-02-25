@@ -15,7 +15,7 @@ Place images in `images` directory. Or you can leave the folder empty and use th
 
 ## Upload Images Service
 
-Once the service is running, a zipped LCP corpus can be uploaded. To test this service, you can run the code at https://github.com/liri-uzh/lcpimport_erara44085 and use the zip package it produces with our Upload Image Service.
+Once the service is running, a zipped LCP corpus can be uploaded. To test this service, you can run the code at https://github.com/liri-uzh/lcpimport_erara44085 and use the zip package it produces with our Upload Image Service. Otherwise, a sample zip file is provided in `sample_lcp_data`.
 Expected zip contents:
 
 ```
