@@ -1,6 +1,6 @@
-# SARI Cantaloupe
+# SARI Cantaloupe IIIF Image Server & Ingest Pipeline
 
-A Docker configuration of the [Cantaloupe](https://cantaloupe-project.github.io/) IIIF Image Server
+This repository implements a Dockerised IIIF image server and ingest pipeline for uploading a zipped LCP corpus, processing its images and manifests with Cantaloupe, and viewing them in a basic Mirador image viewer.
 
 ## How to use
 
