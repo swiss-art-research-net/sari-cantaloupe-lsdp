@@ -1,5 +1,5 @@
 # based on https://github.com/MITLibraries/docker-cantaloupe/blob/master/Dockerfile
-FROM debian:buster
+FROM debian:bookworm-slim
 
 ENV CANTALOUPE_VERSION=5.0
 
@@ -18,10 +18,8 @@ RUN adduser --system cantaloupe
 
 # Get and unpack Cantaloupe release archive
 
-RUN curl --silent --fail -OL https://github.com/cantaloupe-project/cantaloupe/releases/download/v$CANTALOUPE_VERSION/cantaloupe-$CANTALOUPE_VERSION.zip 
-
-RUN curl --silent --fail -OL https://github.com/medusa-project/cantaloupe/releases/download/v$CANTALOUPE_VERSION/Cantaloupe-$CANTALOUPE_VERSION.zip \
-    && unzip Cantaloupe-$CANTALOUPE_VERSION.zip \
+RUN curl --silent --fail -OL https://github.com/cantaloupe-project/cantaloupe/releases/download/v$CANTALOUPE_VERSION/cantaloupe-$CANTALOUPE_VERSION.zip \
+    && unzip cantaloupe-$CANTALOUPE_VERSION.zip \
     && ln -s cantaloupe-$CANTALOUPE_VERSION cantaloupe \
     && rm cantaloupe-$CANTALOUPE_VERSION.zip \
     && mkdir -p /var/log/cantaloupe /var/cache/cantaloupe \

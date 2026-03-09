@@ -1,0 +1,20 @@
+version: '3'
+
+vars:
+
+includes:
+  internal:
+    taskfile: ./taskfiles/internal.yml
+    flatten: true
+  logging:
+    taskfile: ./taskfiles/logging.yml
+    flatten: true
+  utilities:
+    taskfile: ./taskfiles/utilities.yml
+    flatten: true
+
+tasks:
+  default:
+    desc: Default task
+    cmds: 
+      - echo "Default task"

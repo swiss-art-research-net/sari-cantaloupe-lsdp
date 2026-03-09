@@ -12,16 +12,39 @@ services:
       - "${PORT_CANTALOUPE:-8182}:8182"
 
   iiif_ingest:
-    build:
-      context: ./services/iiif_ingest
+    build: ./services/iiif_ingest
     container_name: ${PROJECT_NAME}_iiif_ingest
     environment:
       - CANTALOUPE_IMAGE_DIR=/images
       - CANTALOUPE_BASE_URL=${CANTALOUPE_BASE_URL}
+      - MANIFESTS_DIR=/manifests
+      - MANIFESTS_BASE_URL=${MANIFESTS_BASE_URL}
     volumes:
       - ./images:/images
+      - ./services/iiif_manifests:/manifests
     ports:
       - "8000:8000"
     depends_on:
       - cantaloupe
+    restart: unless-stopped
+
+  jobs:
+    build: ./services/jobs
+    container_name: ${PROJECT_NAME}_jobs
+    restart: unless-stopped
+    volumes:
+        - ./data:/data
+        - ./scripts:/scripts
+        - ./images:/images
+    environment:
+        - JAVA_OPTS=-Xms512m -Xmx1024m
+        - COMPOSE_PROJECT_NAME=${PROJECT_NAME}
+
+  mirador:
+    image: nginx:alpine
+    container_name: ${PROJECT_NAME}_mirador
+    volumes:
+      - ./services/mirador/index.html:/usr/share/nginx/html/index.html:ro
+    ports:
+      - "8088:80"
     restart: unless-stopped
