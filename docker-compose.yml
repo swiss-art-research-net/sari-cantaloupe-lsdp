@@ -8,22 +8,18 @@ services:
     volumes:
       - ./config:/config
       - ./images:/images
-    ports:
-      - "${PORT_CANTALOUPE:-8182}:8182"
 
   iiif_ingest:
     build: ./services/iiif_ingest
     container_name: ${PROJECT_NAME}_iiif_ingest
     environment:
-      - CANTALOUPE_IMAGE_DIR=/images
+      - CANTALOUPE_IMAGE_DIR=${CANTALOUPE_IMAGE_DIR}
       - CANTALOUPE_BASE_URL=${CANTALOUPE_BASE_URL}
-      - MANIFESTS_DIR=/manifests
+      - MANIFESTS_DIR=${MANIFESTS_DIR}
       - MANIFESTS_BASE_URL=${MANIFESTS_BASE_URL}
     volumes:
       - ./images:/images
-      - ./services/iiif_manifests:/manifests
-    ports:
-      - "8000:8000"
+      - ./manifests:/manifests
     depends_on:
       - cantaloupe
     restart: unless-stopped
@@ -46,5 +42,5 @@ services:
     volumes:
       - ./services/mirador/index.html:/usr/share/nginx/html/index.html:ro
     ports:
-      - "8088:80"
+      - "${PORT_MIRADOR:-8088}:80"
     restart: unless-stopped
