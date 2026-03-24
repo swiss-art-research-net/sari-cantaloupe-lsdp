@@ -142,7 +142,7 @@ def save_to_cantaloupe(image_path: str, extract_root: str):
     identifier = fname  # include extension
     base_url = f"{CANTALOUPE_BASE_URL}/{identifier}"
     info_json = f"{base_url}/info.json"
-    default_image = f"{base_url}/full/full/0/default.jpg"
+    default_image = f"{base_url}/full/max/0/default.jpg"
 
     return {
         "local_path": str(dest_path),
@@ -329,4 +329,15 @@ def list_manifests():
     return JSONResponse(urls, headers={"Access-Control-Allow-Origin": "*"})
 
 
-app.mount("/manifests", StaticFiles(directory=str(MANIFESTS_DIR)), name="manifests")
+manifests_app = StaticFiles(directory=str(MANIFESTS_DIR))
+
+app.mount(
+    "/manifests",
+    CORSMiddleware(
+        manifests_app,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    ),
+    name="manifests",
+)
