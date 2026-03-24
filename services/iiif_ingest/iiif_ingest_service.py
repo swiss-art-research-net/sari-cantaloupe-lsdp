@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -45,8 +45,6 @@ MANIFESTS_DIR.mkdir(parents=True, exist_ok=True)
 # fallback to localhost:8000
 MANIFESTS_BASE_URL = os.environ.get("MANIFESTS_BASE_URL", "http://localhost:8000/manifests")
 
-IIIF_UPLOAD_URL = os.environ.get("IIIF_UPLOAD_URL")  # optional remote ingest endpoint
-IIIF_API_KEY = os.environ.get("IIIF_API_KEY") # none atm
 CANTALOUPE_IMAGE_DIR = Path(os.environ.get("CANTALOUPE_IMAGE_DIR", "/images")).resolve()
 CANTALOUPE_BASE_URL = os.environ.get("CANTALOUPE_BASE_URL")
 
@@ -119,18 +117,6 @@ def create_manifest(image_info: dict):
 
     return manifest_id
 
-# disabled for now
-async def require_upload_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """
-    If UPLOAD_API_TOKEN env var is set, require a Bearer token that matches it.
-    If UPLOAD_API_TOKEN is not set, allow.
-    """
-    expected = os.environ.get("UPLOAD_API_TOKEN")
-    if not expected:
-        return True
-    if not credentials or credentials.scheme.lower() != "bearer" or credentials.credentials != expected:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return True
 
 def find_images(extract_dir: str):
     candidates = []
@@ -143,24 +129,6 @@ def find_images(extract_dir: str):
             candidates.extend(glob.glob(os.path.join(extract_dir, "**", ext), recursive=True))
     return sorted(set(candidates))
 
-async def upload_image_to_iiif(client: httpx.AsyncClient, image_path: str):
-    if not IIIF_UPLOAD_URL:
-        raise RuntimeError("IIIF_UPLOAD_URL not configured")
-    filename = os.path.basename(image_path)
-    headers = {}
-    if IIIF_API_KEY:
-        if IIIF_API_KEY.lower().startswith(("bearer ", "token ")):
-            headers["Authorization"] = IIIF_API_KEY
-        else:
-            headers["Authorization"] = f"Bearer {IIIF_API_KEY}"
-    with open(image_path, "rb") as fh:
-        files = {"file": (filename, fh, "application/octet-stream")}
-        resp = await client.post(IIIF_UPLOAD_URL, files=files, headers=headers, timeout=120.0)
-    resp.raise_for_status()
-    ctype = resp.headers.get("content-type", "")
-    if "application/json" in ctype:
-        return resp.json()
-    return {"status": "ok", "code": resp.status_code, "text": resp.text}
 
 def save_to_cantaloupe(image_path: str, extract_root: str):
     """
@@ -186,8 +154,7 @@ def save_to_cantaloupe(image_path: str, extract_root: str):
 
 
 @app.post("/upload-zip")
-# @app.post("/upload-zip", dependencies=[Depends(require_upload_token)])
-async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks = None, request: Request = None):
+async def upload_zip(file: UploadFile = File(...), document_id: str = Form(...), background: BackgroundTasks = None, request: Request = None):
     """
     Accept zip, extract, process images, update page.csv, re-zip output and return download id.
     """
@@ -233,19 +200,6 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                     except Exception:
                         width, height = (1000, 1000)
 
-                    # not going to be used for now, but keep for future
-                    if IIIF_UPLOAD_URL:
-                        try:
-                            res = await upload_image_to_iiif(client, img)
-                            # attempt to extract identifier/iiif url from response
-                            iiif_url = ""
-                            if isinstance(res, dict) and res.get("iiif_info_json"):
-                                iiif_url = res["iiif_info_json"]
-                            results.append({"image": rel_img, "result": res, "destination": "iiif_remote"})
-                            saved_map[os.path.basename(img)] = {"iiif": iiif_url, "width": width, "height": height}
-                            continue
-                        except Exception as e_remote:
-                            results.append({"image": rel_img, "warning": "remote upload failed", "error": str(e_remote)})
                     
                     # falls back to: copy into Cantaloupe FS
                     saved = save_to_cantaloupe(img, base_dir)
@@ -291,6 +245,8 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                     header.append("iiif_url")
                 if "manifest_url" not in header:
                     header.append("manifest_url")
+                if "document_id" not in header:
+                    header.append("document_id")
                 new_rows = [header]
                 for row in reader[1:]:
                     # try to find page filename column (search for a filename pattern)
@@ -299,9 +255,9 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                         if isinstance(val, str) and val.strip().lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
                             filename = os.path.basename(val.strip())
                             break
-                    iiif_url = saved_map.get(filename, {}).get("iiif", "")
+                    iiif_url = saved_map.get(filename, {}).get("iiif_info", "")
                     manifest_url = saved_map.get(filename, {}).get("manifest", "")
-                    new_row = list(row) + [iiif_url, manifest_url]  # append both IIIF info.json and manifest URL
+                    new_row = list(row) + [iiif_url, manifest_url, document_id]  # append both IIIF info.json and manifest URL
                     new_rows.append(new_row)
             # write back
             with open(page_csv_path, "w", newline="", encoding="utf-8") as fh:
@@ -347,14 +303,14 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
             "uploaded": len([r for r in results if "error" not in r]),
             "details": results,
             "download_id": token,
-            "download_url": download_url
+            "download_url": download_url,
+            "document_id": document_id
         })
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/download/{token}")
-# @app.get("/download/{token}", dependencies=[Depends(require_upload_token)])
 def download_result(token: str):
     zpath = TEMP_OUTPUT_DIR.joinpath(f"processed_{token}.zip")
     if not zpath.exists():
