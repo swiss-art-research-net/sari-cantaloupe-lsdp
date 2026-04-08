@@ -8,6 +8,7 @@ import tempfile
 import zipfile
 import shutil
 import os
+import re
 import glob
 import logging
 from pathlib import Path
@@ -53,69 +54,7 @@ CANTALOUPE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_OUTPUT_DIR = Path(tempfile.gettempdir()) / "lsdp_upload_outputs"
 TEMP_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def create_manifest(image_info: dict):
-    """
-    image_info: {"iiif": iiif_info_json, "width": w, "height": h, "identifier": fname}
-    """
-    identifier = image_info["identifier"]
-    width = image_info.get("width", 1000)
-    height = image_info.get("height", 1000)
-    iiif_url = image_info["iiif"]
-
-    # Build manifest id using configured base URL
-    manifest_id = f"{MANIFESTS_BASE_URL.rstrip('/')}/{identifier}.json"
-    canvas_id = f"{manifest_id}/canvas"
-    annotation_page_id = f"{manifest_id}/annotationpage"
-    annotation_id = f"{manifest_id}/annotation"
-
-    manifest = {
-        "@context": "http://iiif.io/api/presentation/3/context.json",
-        "id": manifest_id,
-        "type": "Manifest",
-        "label": {"en": [identifier]},
-        "items": [
-            {
-                "id": canvas_id,
-                "type": "Canvas",
-                "width": width,
-                "height": height,
-                "items": [
-                    {
-                        "id": annotation_page_id,
-                        "type": "AnnotationPage",
-                        "items": [
-                            {
-                                "id": annotation_id,
-                                "type": "Annotation",
-                                "motivation": "painting",
-                                "body": {
-                                    "id": image_info["default_image"],
-                                    "type": "Image",
-                                    "format": "image/jpeg",
-                                    "service": [
-                                        {
-                                            "id": image_info["iiif_base"],
-                                            "type": "ImageService3",
-                                            "profile": "level2"
-                                        }
-                                    ]
-                                },
-                                "target": canvas_id
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-
-    # save manifest JSON
-    manifest_path = MANIFESTS_DIR / f"{identifier}.json"
-    with open(manifest_path, "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, indent=2)
-
-    return manifest_id
+SLASH_SUBSTITUTE = os.environ.get("CANTALOUPE_SLASH_SUBSTITUTE", "!")
 
 
 def find_images(extract_dir: str):
@@ -130,26 +69,26 @@ def find_images(extract_dir: str):
     return sorted(set(candidates))
 
 
-def save_to_cantaloupe(image_path: str, extract_root: str):
-    """
-    Copy image into Cantaloupe image dir using the filename only (no directory prefixes).
-    Return identifier (including extension) and iiif info.json URL.
-    """
+def save_to_cantaloupe(image_path: str, document_id: str):
     fname = os.path.basename(image_path)
-    dest_path = CANTALOUPE_IMAGE_DIR.joinpath(fname)
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    safe_doc_id = re.sub(r"[^A-Za-z0-9_\-]+", "_", document_id.strip() or "doc")
+    doc_dir = CANTALOUPE_IMAGE_DIR.joinpath(safe_doc_id)
+    doc_dir.mkdir(parents=True, exist_ok=True)
+
+    dest_path = doc_dir / fname
     shutil.copy2(image_path, dest_path)
-    identifier = fname  # include extension
-    base_url = f"{CANTALOUPE_BASE_URL}/{identifier}"
-    info_json = f"{base_url}/info.json"
-    default_image = f"{base_url}/full/max/0/default.jpg"
+
+    # Use a single identifier path component for Cantaloupe
+    identifier_path = f"{safe_doc_id}/{fname}"
+    identifier = identifier_path.replace("/", SLASH_SUBSTITUTE)
+    iiif_base = f"{CANTALOUPE_BASE_URL.rstrip('/')}/{identifier}"
 
     return {
         "local_path": str(dest_path),
-        "iiif_info_json": info_json,
-        "iiif_base": base_url,
-        "default_image": default_image,
-        "identifier": identifier
+        "iiif_info_json": f"{iiif_base}/info.json",
+        "iiif_base": iiif_base,
+        "default_image": f"{iiif_base}/full/max/0/default.jpg",
+        "identifier": fname
     }
 
 
@@ -188,7 +127,8 @@ async def upload_zip(file: UploadFile = File(...), document_id: str = Form(...),
             raise HTTPException(status_code=400, detail="No images found in the archive")
 
         results = []
-        saved_map = {}  # filename -> {"iiif": url, "width": w, "height": h}
+        saved_map = {}
+        image_infos = []
         async with httpx.AsyncClient() as client:
             for img in images:
                 rel_img = os.path.relpath(img, base_dir)
@@ -201,29 +141,26 @@ async def upload_zip(file: UploadFile = File(...), document_id: str = Form(...),
                         width, height = (1000, 1000)
 
                     
-                    # falls back to: copy into Cantaloupe FS
-                    saved = save_to_cantaloupe(img, base_dir)
-                    iiif_url = saved.get("iiif_info_json", "")
+                    saved = save_to_cantaloupe(img, document_id)
+                    # open image with PIL to get width/height
+                    with Image.open(img) as img_obj:
+                        width, height = img_obj.size
+
+                    saved_info = {
+                        "identifier": saved["identifier"],
+                        "iiif_base": saved["iiif_base"],
+                        "width": width,
+                        "height": height
+                    }
+                    image_infos.append(saved_info)
+
                     saved_map[os.path.basename(img)] = {
                         "iiif_info": saved["iiif_info_json"],
                         "iiif_base": saved["iiif_base"],
                         "default_image": saved["default_image"],
                         "width": width,
-                        "height": height
-                    }
-                    
-                    # generate manifest for this image
-                    manifest_url = create_manifest({
-                        "iiif": iiif_url,
-                        "width": width,
                         "height": height,
-                        "identifier": os.path.basename(img),
-                        "default_image": saved["default_image"],
-                        "iiif_base": saved["iiif_base"]
-                    })
-                    saved_map[os.path.basename(img)]["manifest"] = manifest_url
-                    
-                    saved["manifest_url"] = manifest_url  # set manifest URL
+                    }
 
                     results.append({"image": rel_img, "result": saved, "destination": "cantaloupe_fs"})
                 except Exception as e:
@@ -256,7 +193,7 @@ async def upload_zip(file: UploadFile = File(...), document_id: str = Form(...),
                             filename = os.path.basename(val.strip())
                             break
                     iiif_url = saved_map.get(filename, {}).get("iiif_info", "")
-                    manifest_url = saved_map.get(filename, {}).get("manifest", "")
+                    manifest_url = create_document_manifest(document_id, image_infos)
                     new_row = list(row) + [iiif_url, manifest_url, document_id]  # append both IIIF info.json and manifest URL
                     new_rows.append(new_row)
             # write back
@@ -304,7 +241,8 @@ async def upload_zip(file: UploadFile = File(...), document_id: str = Form(...),
             "details": results,
             "download_id": token,
             "download_url": download_url,
-            "document_id": document_id
+            "document_id": document_id,
+            "document_manifest_url": create_document_manifest(document_id, image_infos)
         })
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -320,24 +258,67 @@ def download_result(token: str):
 @app.get("/manifests.json")
 def list_manifests():
     """
-    Return all manifests in services/iiif_manifests/ as a list of URLs
+    Return all manifests in MANIFESTS_DIR (flat, no subfolders) as a list of URLs
     """
     urls = []
     for f in MANIFESTS_DIR.glob("*.json"):
-        urls.append(f"{MANIFESTS_BASE_URL.rstrip('/')}/{f.name}")
-    # Ensure CORS header is present in the response
+        rel_path = f.relative_to(MANIFESTS_DIR)
+        urls.append(f"{MANIFESTS_BASE_URL.rstrip('/')}/{rel_path}")
     return JSONResponse(urls, headers={"Access-Control-Allow-Origin": "*"})
 
 
 manifests_app = StaticFiles(directory=str(MANIFESTS_DIR))
+app.mount("/manifests", manifests_app, name="manifests")
 
-app.mount(
-    "/manifests",
-    CORSMiddleware(
-        manifests_app,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    ),
-    name="manifests",
-)
+def create_document_manifest(document_id: str, image_infos: list):
+    safe = re.sub(r"[^A-Za-z0-9_\-]+", "_", document_id.strip() or "doc")
+    
+    manifest_path = MANIFESTS_DIR / f"{safe}.json" # e.g. /manifests/doc123.json
+    manifest_id = f"{MANIFESTS_BASE_URL.rstrip('/')}/{safe}.json"  # e.g. http://localhost:8000/manifests/doc123.json
+
+    items = []
+    for i, info in enumerate(image_infos, start=1):
+        canvas_id = f"{manifest_id}/canvas/{i}"
+        annotation_page_id = f"{canvas_id}/annotationpage"
+        annotation_id = f"{canvas_id}/annotation"
+        items.append({
+            "id": canvas_id,
+            "type": "Canvas",
+            "label": {"en": [info["identifier"]]},
+            "width": info["width"],
+            "height": info["height"],
+            "items": [{
+                "id": annotation_page_id,
+                "type": "AnnotationPage",
+                "items": [{
+                    "id": annotation_id,
+                    "type": "Annotation",
+                    "motivation": "painting",
+                    "body": {
+                        "id": info["iiif_base"] + "/full/max/0/default.jpg",
+                        "type": "Image",
+                        "format": "image/jpeg",
+                        "service": [{
+                            "id": info["iiif_base"],
+                            "type": "ImageService3",
+                            "profile": "level2"
+                        }],
+                        "width": info["width"],
+                        "height": info["height"],
+                    },
+                    "target": canvas_id
+                }]
+            }]
+        })
+
+    manifest = {
+        "@context": "http://iiif.io/api/presentation/3/context.json",
+        "id": manifest_id,
+        "type": "Manifest",
+        "label": {"en": [document_id]},
+        "behavior": ["paged"],
+        "items": items
+    }
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2)
+    return manifest_id
