@@ -1,5 +1,12 @@
-# version: "3"
 services:
-    cantaloupe:
-        ports:
-            - ${PORT_CANTALOUPE}:8182
+  cantaloupe:
+    ports:
+      - "8182:8182"
+
+  iiif_ingest:
+    ports:
+      - "8000:8000"
+
+  mirador:
+    ports:
+      - "8088:80"

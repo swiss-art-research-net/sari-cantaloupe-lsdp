@@ -39,66 +39,64 @@ Expected zip contents:
 
 Use the following command to upload zip (replace `localhost:8000` with host name if applicable)
 ```
-curl -F "file=@path/to/lcp_erara_output.zip" http://localhost:8000/upload-zip
+curl -F "file=@path/to/lcp_erara_output.zip" -F "document_id=erara44085" http://localhost:8000/upload-zip
 ```
 
 The response will look like the following:
 
 ```json
 {
-  "uploaded": 4,
-  "details": [
-    {
-      "image": "media/p10709677.png",
-      "result": {
-        "local_path": "/images/p10709677.png",
-        "iiif_info_json": "http://localhost:8182/iiif/2/p10709677.png/info.json",
-        "iiif_base": "http://localhost:8182/iiif/2/p10709677.png",
-        "default_image": "http://localhost:8182/iiif/2/p10709677.png/full/full/0/default.jpg",
-        "identifier": "p10709677.png",
-        "manifest_url": "http://localhost:8000/manifests/p10709677.png.json"
-      },
-      "destination": "cantaloupe_fs"
-    },
-    {
-      "image": "media/p10709678.png",
-      "result": {
-        "local_path": "/images/p10709678.png",
-        "iiif_info_json": "http://localhost:8182/iiif/2/p10709678.png/info.json",
-        "iiif_base": "http://localhost:8182/iiif/2/p10709678.png",
-        "default_image": "http://localhost:8182/iiif/2/p10709678.png/full/full/0/default.jpg",
-        "identifier": "p10709678.png",
-        "manifest_url": "http://localhost:8000/manifests/p10709678.png.json"
-      },
-      "destination": "cantaloupe_fs"
-    },
-    {
-      "image": "media/p12550757.png",
-      "result": {
-        "local_path": "/images/p12550757.png",
-        "iiif_info_json": "http://localhost:8182/iiif/2/p12550757.png/info.json",
-        "iiif_base": "http://localhost:8182/iiif/2/p12550757.png",
-        "default_image": "http://localhost:8182/iiif/2/p12550757.png/full/full/0/default.jpg",
-        "identifier": "p12550757.png",
-        "manifest_url": "http://localhost:8000/manifests/p12550757.png.json"
-      },
-      "destination": "cantaloupe_fs"
-    },
-    {
-      "image": "media/p12550758.png",
-      "result": {
-        "local_path": "/images/p12550758.png",
-        "iiif_info_json": "http://localhost:8182/iiif/2/p12550758.png/info.json",
-        "iiif_base": "http://localhost:8182/iiif/2/p12550758.png",
-        "default_image": "http://localhost:8182/iiif/2/p12550758.png/full/full/0/default.jpg",
-        "identifier": "p12550758.png",
-        "manifest_url": "http://localhost:8000/manifests/p12550758.png.json"
-      },
-      "destination": "cantaloupe_fs"
-    }
-  ],
-  "download_id": "ae306569544741988a71cac49d4b7cdb",
-  "download_url": "http://localhost:8000/download/ae306569544741988a71cac49d4b7cdb"
+    "uploaded": 4,
+    "details": [
+        {
+            "image": "media/p10709677.png",
+            "result": {
+                "local_path": "/images/erara44085/p10709677.png",
+                "iiif_info_json": "http://localhost:8182/iiif/2/erara44085!p10709677.png/info.json",
+                "iiif_base": "http://localhost:8182/iiif/2/erara44085!p10709677.png",
+                "default_image": "http://localhost:8182/iiif/2/erara44085!p10709677.png/full/max/0/default.jpg",
+                "identifier": "p10709677.png"
+            },
+            "destination": "cantaloupe_fs"
+        },
+        {
+            "image": "media/p10709678.png",
+            "result": {
+                "local_path": "/images/erara44085/p10709678.png",
+                "iiif_info_json": "http://localhost:8182/iiif/2/erara44085!p10709678.png/info.json",
+                "iiif_base": "http://localhost:8182/iiif/2/erara44085!p10709678.png",
+                "default_image": "http://localhost:8182/iiif/2/erara44085!p10709678.png/full/max/0/default.jpg",
+                "identifier": "p10709678.png"
+            },
+            "destination": "cantaloupe_fs"
+        },
+        {
+            "image": "media/p12550757.png",
+            "result": {
+                "local_path": "/images/erara44085/p12550757.png",
+                "iiif_info_json": "http://localhost:8182/iiif/2/erara44085!p12550757.png/info.json",
+                "iiif_base": "http://localhost:8182/iiif/2/erara44085!p12550757.png",
+                "default_image": "http://localhost:8182/iiif/2/erara44085!p12550757.png/full/max/0/default.jpg",
+                "identifier": "p12550757.png"
+            },
+            "destination": "cantaloupe_fs"
+        },
+        {
+            "image": "media/p12550758.png",
+            "result": {
+                "local_path": "/images/erara44085/p12550758.png",
+                "iiif_info_json": "http://localhost:8182/iiif/2/erara44085!p12550758.png/info.json",
+                "iiif_base": "http://localhost:8182/iiif/2/erara44085!p12550758.png",
+                "default_image": "http://localhost:8182/iiif/2/erara44085!p12550758.png/full/max/0/default.jpg",
+                "identifier": "p12550758.png"
+            },
+            "destination": "cantaloupe_fs"
+        }
+    ],
+    "download_id": "081b83067c7140f5aeb712e2bf83111c",
+    "download_url": "http://localhost:8000/download/081b83067c7140f5aeb712e2bf83111c",
+    "document_id": "erara44085",
+    "document_manifest_url": "http://localhost:8000/manifests/erara44085.json"
 }
 ```
 
@@ -107,9 +105,9 @@ The modifications concern exclusively the file `page.csv` in the zip package, wh
 Here is an excerpt of the modified `page.csv` file:
 
 ```csv
-page_id,char_range,xy_box,page,iiif_url,manifest_url
-1,"[0,32)","(0,0),(1492,2299)",p12550757.png,http://localhost:8182/iiif/2/p12550757.png/info.json,http://localhost:8000/manifests/p12550757.png.json
-2,"[32,38)","(1493,0),(2895,2303)",p12550758.png,http://localhost:8182/iiif/2/p12550758.png/info.json,http://localhost:8000/manifests/p12550758.png.json
+page_id,char_range,xy_box,page,iiif_url,manifest_url,document_id
+1,"[0,32)","(0,0),(1492,2299)",p12550757.png,http://localhost:8182/iiif/2/erara44085!p12550757.png/info.json,http://localhost:8000/manifests/erara44085.json,erara44085
+2,"[32,38)","(1493,0),(2895,2303)",p12550758.png,http://localhost:8182/iiif/2/erara44085!p12550758.png/info.json,http://localhost:8000/manifests/erara44085.json,erara44085
 ```
 
 ## IIIF Viewer

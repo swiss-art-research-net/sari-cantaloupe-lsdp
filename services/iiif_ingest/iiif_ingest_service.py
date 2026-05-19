@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Depends, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +8,7 @@ import tempfile
 import zipfile
 import shutil
 import os
+import re
 import glob
 import logging
 from pathlib import Path
@@ -45,8 +46,6 @@ MANIFESTS_DIR.mkdir(parents=True, exist_ok=True)
 # fallback to localhost:8000
 MANIFESTS_BASE_URL = os.environ.get("MANIFESTS_BASE_URL", "http://localhost:8000/manifests")
 
-IIIF_UPLOAD_URL = os.environ.get("IIIF_UPLOAD_URL")  # optional remote ingest endpoint
-IIIF_API_KEY = os.environ.get("IIIF_API_KEY") # none atm
 CANTALOUPE_IMAGE_DIR = Path(os.environ.get("CANTALOUPE_IMAGE_DIR", "/images")).resolve()
 CANTALOUPE_BASE_URL = os.environ.get("CANTALOUPE_BASE_URL")
 
@@ -55,82 +54,8 @@ CANTALOUPE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_OUTPUT_DIR = Path(tempfile.gettempdir()) / "lsdp_upload_outputs"
 TEMP_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+SLASH_SUBSTITUTE = os.environ.get("CANTALOUPE_SLASH_SUBSTITUTE", "!")
 
-def create_manifest(image_info: dict):
-    """
-    image_info: {"iiif": iiif_info_json, "width": w, "height": h, "identifier": fname}
-    """
-    identifier = image_info["identifier"]
-    width = image_info.get("width", 1000)
-    height = image_info.get("height", 1000)
-    iiif_url = image_info["iiif"]
-
-    # Build manifest id using configured base URL
-    manifest_id = f"{MANIFESTS_BASE_URL.rstrip('/')}/{identifier}.json"
-    canvas_id = f"{manifest_id}/canvas"
-    annotation_page_id = f"{manifest_id}/annotationpage"
-    annotation_id = f"{manifest_id}/annotation"
-
-    manifest = {
-        "@context": "http://iiif.io/api/presentation/3/context.json",
-        "id": manifest_id,
-        "type": "Manifest",
-        "label": {"en": [identifier]},
-        "items": [
-            {
-                "id": canvas_id,
-                "type": "Canvas",
-                "width": width,
-                "height": height,
-                "items": [
-                    {
-                        "id": annotation_page_id,
-                        "type": "AnnotationPage",
-                        "items": [
-                            {
-                                "id": annotation_id,
-                                "type": "Annotation",
-                                "motivation": "painting",
-                                "body": {
-                                    "id": image_info["default_image"],
-                                    "type": "Image",
-                                    "format": "image/jpeg",
-                                    "service": [
-                                        {
-                                            "id": image_info["iiif_base"],
-                                            "type": "ImageService3",
-                                            "profile": "level2"
-                                        }
-                                    ]
-                                },
-                                "target": canvas_id
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-
-    # save manifest JSON
-    manifest_path = MANIFESTS_DIR / f"{identifier}.json"
-    with open(manifest_path, "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, indent=2)
-
-    return manifest_id
-
-# disabled for now
-async def require_upload_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """
-    If UPLOAD_API_TOKEN env var is set, require a Bearer token that matches it.
-    If UPLOAD_API_TOKEN is not set, allow.
-    """
-    expected = os.environ.get("UPLOAD_API_TOKEN")
-    if not expected:
-        return True
-    if not credentials or credentials.scheme.lower() != "bearer" or credentials.credentials != expected:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return True
 
 def find_images(extract_dir: str):
     candidates = []
@@ -143,51 +68,32 @@ def find_images(extract_dir: str):
             candidates.extend(glob.glob(os.path.join(extract_dir, "**", ext), recursive=True))
     return sorted(set(candidates))
 
-async def upload_image_to_iiif(client: httpx.AsyncClient, image_path: str):
-    if not IIIF_UPLOAD_URL:
-        raise RuntimeError("IIIF_UPLOAD_URL not configured")
-    filename = os.path.basename(image_path)
-    headers = {}
-    if IIIF_API_KEY:
-        if IIIF_API_KEY.lower().startswith(("bearer ", "token ")):
-            headers["Authorization"] = IIIF_API_KEY
-        else:
-            headers["Authorization"] = f"Bearer {IIIF_API_KEY}"
-    with open(image_path, "rb") as fh:
-        files = {"file": (filename, fh, "application/octet-stream")}
-        resp = await client.post(IIIF_UPLOAD_URL, files=files, headers=headers, timeout=120.0)
-    resp.raise_for_status()
-    ctype = resp.headers.get("content-type", "")
-    if "application/json" in ctype:
-        return resp.json()
-    return {"status": "ok", "code": resp.status_code, "text": resp.text}
 
-def save_to_cantaloupe(image_path: str, extract_root: str):
-    """
-    Copy image into Cantaloupe image dir using the filename only (no directory prefixes).
-    Return identifier (including extension) and iiif info.json URL.
-    """
+def save_to_cantaloupe(image_path: str, document_id: str):
     fname = os.path.basename(image_path)
-    dest_path = CANTALOUPE_IMAGE_DIR.joinpath(fname)
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    safe_doc_id = re.sub(r"[^A-Za-z0-9_\-]+", "_", document_id.strip() or "doc")
+    doc_dir = CANTALOUPE_IMAGE_DIR.joinpath(safe_doc_id)
+    doc_dir.mkdir(parents=True, exist_ok=True)
+
+    dest_path = doc_dir / fname
     shutil.copy2(image_path, dest_path)
-    identifier = fname  # include extension
-    base_url = f"{CANTALOUPE_BASE_URL}/{identifier}"
-    info_json = f"{base_url}/info.json"
-    default_image = f"{base_url}/full/full/0/default.jpg"
+
+    # Use a single identifier path component for Cantaloupe
+    identifier_path = f"{safe_doc_id}/{fname}"
+    identifier = identifier_path.replace("/", SLASH_SUBSTITUTE)
+    iiif_base = f"{CANTALOUPE_BASE_URL.rstrip('/')}/{identifier}"
 
     return {
         "local_path": str(dest_path),
-        "iiif_info_json": info_json,
-        "iiif_base": base_url,
-        "default_image": default_image,
-        "identifier": identifier
+        "iiif_info_json": f"{iiif_base}/info.json",
+        "iiif_base": iiif_base,
+        "default_image": f"{iiif_base}/full/max/0/default.jpg",
+        "identifier": fname
     }
 
 
 @app.post("/upload-zip")
-# @app.post("/upload-zip", dependencies=[Depends(require_upload_token)])
-async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks = None, request: Request = None):
+async def upload_zip(file: UploadFile = File(...), document_id: str = Form(...), background: BackgroundTasks = None, request: Request = None):
     """
     Accept zip, extract, process images, update page.csv, re-zip output and return download id.
     """
@@ -221,7 +127,8 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
             raise HTTPException(status_code=400, detail="No images found in the archive")
 
         results = []
-        saved_map = {}  # filename -> {"iiif": url, "width": w, "height": h}
+        saved_map = {}
+        image_infos = []
         async with httpx.AsyncClient() as client:
             for img in images:
                 rel_img = os.path.relpath(img, base_dir)
@@ -233,43 +140,27 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                     except Exception:
                         width, height = (1000, 1000)
 
-                    # not going to be used for now, but keep for future
-                    if IIIF_UPLOAD_URL:
-                        try:
-                            res = await upload_image_to_iiif(client, img)
-                            # attempt to extract identifier/iiif url from response
-                            iiif_url = ""
-                            if isinstance(res, dict) and res.get("iiif_info_json"):
-                                iiif_url = res["iiif_info_json"]
-                            results.append({"image": rel_img, "result": res, "destination": "iiif_remote"})
-                            saved_map[os.path.basename(img)] = {"iiif": iiif_url, "width": width, "height": height}
-                            continue
-                        except Exception as e_remote:
-                            results.append({"image": rel_img, "warning": "remote upload failed", "error": str(e_remote)})
                     
-                    # falls back to: copy into Cantaloupe FS
-                    saved = save_to_cantaloupe(img, base_dir)
-                    iiif_url = saved.get("iiif_info_json", "")
+                    saved = save_to_cantaloupe(img, document_id)
+                    # open image with PIL to get width/height
+                    with Image.open(img) as img_obj:
+                        width, height = img_obj.size
+
+                    saved_info = {
+                        "identifier": saved["identifier"],
+                        "iiif_base": saved["iiif_base"],
+                        "width": width,
+                        "height": height
+                    }
+                    image_infos.append(saved_info)
+
                     saved_map[os.path.basename(img)] = {
                         "iiif_info": saved["iiif_info_json"],
                         "iiif_base": saved["iiif_base"],
                         "default_image": saved["default_image"],
                         "width": width,
-                        "height": height
-                    }
-                    
-                    # generate manifest for this image
-                    manifest_url = create_manifest({
-                        "iiif": iiif_url,
-                        "width": width,
                         "height": height,
-                        "identifier": os.path.basename(img),
-                        "default_image": saved["default_image"],
-                        "iiif_base": saved["iiif_base"]
-                    })
-                    saved_map[os.path.basename(img)]["manifest"] = manifest_url
-                    
-                    saved["manifest_url"] = manifest_url  # set manifest URL
+                    }
 
                     results.append({"image": rel_img, "result": saved, "destination": "cantaloupe_fs"})
                 except Exception as e:
@@ -291,6 +182,8 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                     header.append("iiif_url")
                 if "manifest_url" not in header:
                     header.append("manifest_url")
+                if "document_id" not in header:
+                    header.append("document_id")
                 new_rows = [header]
                 for row in reader[1:]:
                     # try to find page filename column (search for a filename pattern)
@@ -299,9 +192,9 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
                         if isinstance(val, str) and val.strip().lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
                             filename = os.path.basename(val.strip())
                             break
-                    iiif_url = saved_map.get(filename, {}).get("iiif", "")
-                    manifest_url = saved_map.get(filename, {}).get("manifest", "")
-                    new_row = list(row) + [iiif_url, manifest_url]  # append both IIIF info.json and manifest URL
+                    iiif_url = saved_map.get(filename, {}).get("iiif_info", "")
+                    manifest_url = create_document_manifest(document_id, image_infos)
+                    new_row = list(row) + [iiif_url, manifest_url, document_id]  # append both IIIF info.json and manifest URL
                     new_rows.append(new_row)
             # write back
             with open(page_csv_path, "w", newline="", encoding="utf-8") as fh:
@@ -347,14 +240,15 @@ async def upload_zip(file: UploadFile = File(...), background: BackgroundTasks =
             "uploaded": len([r for r in results if "error" not in r]),
             "details": results,
             "download_id": token,
-            "download_url": download_url
+            "download_url": download_url,
+            "document_id": document_id,
+            "document_manifest_url": create_document_manifest(document_id, image_infos)
         })
     except Exception as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/download/{token}")
-# @app.get("/download/{token}", dependencies=[Depends(require_upload_token)])
 def download_result(token: str):
     zpath = TEMP_OUTPUT_DIR.joinpath(f"processed_{token}.zip")
     if not zpath.exists():
@@ -364,13 +258,67 @@ def download_result(token: str):
 @app.get("/manifests.json")
 def list_manifests():
     """
-    Return all manifests in services/iiif_manifests/ as a list of URLs
+    Return all manifests in MANIFESTS_DIR (flat, no subfolders) as a list of URLs
     """
     urls = []
     for f in MANIFESTS_DIR.glob("*.json"):
-        urls.append(f"{MANIFESTS_BASE_URL.rstrip('/')}/{f.name}")
-    # Ensure CORS header is present in the response
+        rel_path = f.relative_to(MANIFESTS_DIR)
+        urls.append(f"{MANIFESTS_BASE_URL.rstrip('/')}/{rel_path}")
     return JSONResponse(urls, headers={"Access-Control-Allow-Origin": "*"})
 
 
-app.mount("/manifests", StaticFiles(directory=str(MANIFESTS_DIR)), name="manifests")
+manifests_app = StaticFiles(directory=str(MANIFESTS_DIR))
+app.mount("/manifests", manifests_app, name="manifests")
+
+def create_document_manifest(document_id: str, image_infos: list):
+    safe = re.sub(r"[^A-Za-z0-9_\-]+", "_", document_id.strip() or "doc")
+    
+    manifest_path = MANIFESTS_DIR / f"{safe}.json" # e.g. /manifests/doc123.json
+    manifest_id = f"{MANIFESTS_BASE_URL.rstrip('/')}/{safe}.json"  # e.g. http://localhost:8000/manifests/doc123.json
+
+    items = []
+    for i, info in enumerate(image_infos, start=1):
+        canvas_id = f"{manifest_id}/canvas/{i}"
+        annotation_page_id = f"{canvas_id}/annotationpage"
+        annotation_id = f"{canvas_id}/annotation"
+        items.append({
+            "id": canvas_id,
+            "type": "Canvas",
+            "label": {"en": [info["identifier"]]},
+            "width": info["width"],
+            "height": info["height"],
+            "items": [{
+                "id": annotation_page_id,
+                "type": "AnnotationPage",
+                "items": [{
+                    "id": annotation_id,
+                    "type": "Annotation",
+                    "motivation": "painting",
+                    "body": {
+                        "id": info["iiif_base"] + "/full/max/0/default.jpg",
+                        "type": "Image",
+                        "format": "image/jpeg",
+                        "service": [{
+                            "id": info["iiif_base"],
+                            "type": "ImageService3",
+                            "profile": "level2"
+                        }],
+                        "width": info["width"],
+                        "height": info["height"],
+                    },
+                    "target": canvas_id
+                }]
+            }]
+        })
+
+    manifest = {
+        "@context": "http://iiif.io/api/presentation/3/context.json",
+        "id": manifest_id,
+        "type": "Manifest",
+        "label": {"en": [document_id]},
+        "behavior": ["paged"],
+        "items": items
+    }
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2)
+    return manifest_id
